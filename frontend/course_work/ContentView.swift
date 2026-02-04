@@ -92,11 +92,6 @@ struct ContentView: View {
         
         Button("Отправить Координаты точки 1") {
             
-            if (route.isEmpty) {
-                route = BuildRout(start: points[0].coordinate,
-                                  end: points[1].coordinate,
-                                  steps: 50)
-            }
             sendPoint(1,
                       points[0].coordinate.latitude,
                       points[0].coordinate.longitude
@@ -109,11 +104,6 @@ struct ContentView: View {
         
         Button("Отправить Координаты точки 2") {
             
-            if (route.isEmpty) {
-                route = BuildRout(start: points[0].coordinate,
-                                  end: points[1].coordinate,
-                                  steps: 50)
-            }
             sendPoint(2,
                       points[1].coordinate.latitude,
                       points[1].coordinate.longitude
