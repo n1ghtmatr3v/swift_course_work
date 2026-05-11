@@ -212,6 +212,8 @@ struct NavigatorOnMap: View
 
     @State private var startPoint: CLLocationCoordinate2D?
     @State private var endPoint: CLLocationCoordinate2D?
+    @State private var startMapPickerCoordinate: CLLocationCoordinate2D?
+    @State private var endMapPickerCoordinate: CLLocationCoordinate2D?
     @State private var routePoints: [RoutePoint] = []
     @State private var routeLengthMeters: Double?
     @State private var routeDurationSeconds: Double?
@@ -316,11 +318,13 @@ struct NavigatorOnMap: View
                         historyItems: addressHistory.items,
                         selectStartSuggestion: { suggestion in
                             startAddress = suggestion.displayText
+                            startMapPickerCoordinate = nil
                             errorMessage = nil
                             searchAddress.clearStartResults()
                         },
                         selectEndSuggestion: { suggestion in
                             endAddress = suggestion.displayText
+                            endMapPickerCoordinate = nil
                             errorMessage = nil
                             searchAddress.clearEndResults()
                         },
@@ -357,12 +361,16 @@ struct NavigatorOnMap: View
                             searchAddress.clearEndResults()
                         },
                         updateStartText: { text in
+                            startMapPickerCoordinate = nil
                             errorMessage = nil
                             searchAddress.updateStartQuery(text)
+
                         },
                         updateEndText: { text in
+                            endMapPickerCoordinate = nil
                             errorMessage = nil
                             searchAddress.updateEndQuery(text)
+
                         },
                         setStartEditing: { isEditing in
                             if isEditing == false {
@@ -930,12 +938,20 @@ struct NavigatorOnMap: View
         searchAddress.clearStartResults()
         searchAddress.clearEndResults()
 
+        let coordinate = CLLocationCoordinate2D(
+            latitude: response.lat,
+            longitude: response.lon
+        )
+
         switch target {
         case .start:
             startAddress = response.fullName
+            startMapPickerCoordinate = coordinate
         case .end:
             endAddress = response.fullName
+            endMapPickerCoordinate = coordinate
         }
+
     }
 
     private var hasRouteOnMap: Bool
@@ -1166,6 +1182,55 @@ struct NavigatorOnMap: View
 
         return isInsideAllowedSavedAddressRect(coordinate)
     }
+    
+    private func resolvedRouteAddressForBuilding(
+        query: String,
+        isPreferredAlias: Bool,
+        pickedCoordinate: CLLocationCoordinate2D?
+    ) async throws -> AddressResolveResponse
+    {
+        if let pickedCoordinate {
+            let fullName = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Выбранная точка на карте"
+                : query
+
+            return AddressResolveResponse(
+                fullName: fullName,
+                lat: pickedCoordinate.latitude,
+                lon: pickedCoordinate.longitude
+            )
+        }
+
+        if isPreferredAlias,
+           let preferredEntry = savedAddressesStore.preferredEntry,
+           let coordinate = preferredEntry.coordinate {
+            let fullName = preferredEntry.trimmedResolvedAddress.isEmpty
+                ? preferredEntry.trimmedAddress
+                : preferredEntry.trimmedResolvedAddress
+
+            return AddressResolveResponse(
+                fullName: fullName,
+                lat: coordinate.latitude,
+                lon: coordinate.longitude
+            )
+        }
+
+        let response = try await routeService.resolveAddress(query: query)
+        let coordinate = CLLocationCoordinate2D(
+            latitude: response.lat,
+            longitude: response.lon
+        )
+
+        guard isInsideAllowedSavedAddressRect(coordinate) else {
+            throw BackendError.message(outOfBoundsAddressText)
+        }
+
+        return response
+    }
+
+    
+    
+    
 
     @MainActor
     private func syncPreferredAddressState(centerMap: Bool) async
@@ -1209,7 +1274,9 @@ struct NavigatorOnMap: View
     {
         startPoint = nil
         endPoint = nil
+        endMapPickerCoordinate = nil
         routePoints = []
+
         routeLengthMeters = nil
         routeDurationSeconds = nil
 
@@ -1255,34 +1322,25 @@ struct NavigatorOnMap: View
         searchAddress.clearEndResults()
 
         do {
-            if isStartPreferredAlias == false {
-                guard try await routeAddressIsInsideAllowedRect(effectiveStartQuery) else {
-                    addressHistory.remove(
-                        startQuery: effectiveStartQuery,
-                        endQuery: effectiveEndQuery
-                    )
-                    isLoading = false
-                    errorMessage = outOfBoundsAddressText
-                    return
-                }
-            }
-
-            if isEndPreferredAlias == false {
-                guard try await routeAddressIsInsideAllowedRect(effectiveEndQuery) else {
-                    addressHistory.remove(
-                        startQuery: effectiveStartQuery,
-                        endQuery: effectiveEndQuery
-                    )
-                    isLoading = false
-                    errorMessage = outOfBoundsAddressText
-                    return
-                }
-            }
-
-            let response = try await routeService.buildRouteByAddress(
-                startQuery: effectiveStartQuery,
-                endQuery: effectiveEndQuery
+            async let startResolved = resolvedRouteAddressForBuilding(
+                query: effectiveStartQuery,
+                isPreferredAlias: isStartPreferredAlias,
+                pickedCoordinate: startMapPickerCoordinate
             )
+
+            async let endResolved = resolvedRouteAddressForBuilding(
+                query: effectiveEndQuery,
+                isPreferredAlias: isEndPreferredAlias,
+                pickedCoordinate: endMapPickerCoordinate
+            )
+
+            let (resolvedStart, resolvedEnd) = try await (startResolved, endResolved)
+
+            let response = try await routeService.buildRouteByResolvedAddresses(
+                start: resolvedStart,
+                end: resolvedEnd
+            )
+
 
             guard response.route.isEmpty == false else {
                 addressHistory.remove(

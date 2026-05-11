@@ -97,11 +97,16 @@ final class ShowAddress: ObservableObject
                 longitude: nearest.point.lon
             )
 
-            let response = try await resolveDisplayAddress(
+            let response = (try? await resolveDisplayAddress(
                 coordinate: coordinate,
                 snappedCoordinate: snappedCoordinate,
                 using: service
+            )) ?? AddressResolveResponse(
+                fullName: "Выбранная точка на карте",
+                lat: snappedCoordinate.latitude,
+                lon: snappedCoordinate.longitude
             )
+
 
             guard resolveRequestSerial == requestSerial,
                   isSameCoordinate(coordinate, selectedCoordinate) else {
