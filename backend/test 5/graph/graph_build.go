@@ -208,12 +208,21 @@ func isWalkServiceRoad(tags osm.Tags) bool {
 	case "parking_aisle",
 		"drive-through",
 		"private",
-		"emergency_access":
+		"emergency_access",
+		"driveway":
+		return HasRoadSignForWalk(tags)
+	}
+
+	if HasRoadSignForWalk(tags) {
+		return true
+	}
+
+	if tags.Find("maxspeed") != "" || tags.Find("source:maxspeed") != "" {
 		return false
 	}
 
-	if service == "driveway" {
-		return HasRoadSignForWalk(tags)
+	if tags.Find("lanes") != "" {
+		return false
 	}
 
 	return true
